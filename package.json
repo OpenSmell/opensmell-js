@@ -1,0 +1,53 @@
+{
+  "name": "opensmell",
+  "version": "1.0.0",
+  "description": "OpenSmell JS SDK — digital olfaction for Node.js and the browser: .osmell I/O, Rs/R0 normalization, the full MOX feature framework, quality scoring, and ingest. Mirrors the Python and Rust SDKs.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "sideEffects": false,
+  "license": "MIT",
+  "author": "OpenSmell Project <praise@opensmell.xyz>",
+  "homepage": "https://opensmell.xyz",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/OpenSmell/opensmell-js.git"
+  },
+  "keywords": [
+    "digital-olfaction",
+    "electronic-nose",
+    "e-nose",
+    "gas-sensors",
+    "mox",
+    "feature-extraction",
+    ".osmell"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "prepublishOnly": "npm run build && npm test"
+  },
+  "dependencies": {
+    "jszip": "^3.10.1"
+  },
+  "devDependencies": {
+    "@types/node": "^24",
+    "typescript": "^5",
+    "vitest": "^3"
+  }
+}

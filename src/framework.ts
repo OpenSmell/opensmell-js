@@ -161,7 +161,11 @@ export function computeChannelDeviceAgnostic(
     }
   }
 
-  const auc = trapz(norm.map((v) => Math.abs(v)));
+  // True time integral: trapz(|norm|) is unit-spaced (sums per sample, so it
+  // grows with cadence); dividing by sr turns it into an integral over dt =
+  // 1/sr seconds of wall-clock: AUC = Σ|norm|·dt. At the nominal 10 Hz grid the
+  // value is the legacy trapz / 10; at non-10 Hz cadences it is honest seconds.
+  const auc = trapz(norm.map((v) => Math.abs(v))) / sr;
   const endpointDelta = (series[series.length - 1]! - R0) / R0;
 
   return {
@@ -261,7 +265,10 @@ export function computeChannelTemporal(series: number[], sr = 10): Record<string
 
   const diffs: number[] = [];
   for (let i = 1; i < series.length; i++) diffs.push(Math.abs(series[i]! - series[i - 1]!));
-  const hfTransient = diffs.length ? diffs.reduce((a, b) => a + b, 0) / diffs.length : 0;
+  // Per-second slope: mean(|diff|) is a per-sample gradient that shrinks ~1/sr;
+  // scaling by sr (dt = 1/sr) makes hf_transient the mean |dy/dt| in units of
+  // signal/second instead of signal/sample.
+  const hfTransient = diffs.length ? (diffs.reduce((a, b) => a + b, 0) / diffs.length) * sr : 0;
 
   const detrended = detrend(series);
   let oscFreq = 0, oscAmp = 0;
@@ -296,16 +303,36 @@ export function computeChannelTemporal(series: number[], sr = 10): Record<string
   };
 }
 
-export function computeChannelHealth(series: number[], r0Samples = 15, r0?: number): Record<string, number> {
+export function computeChannelHealth(series: number[], r0Samples = 15, r0?: number, sr = 10): Record<string, number> {
   if (series.length < r0Samples + 5) {
     return { drift_rate: 0, sensitivity_decay: 0, noise_floor: 0, hysteresis: 0 };
   }
   const r0v = r0FromContract(series, r0Samples, r0);
 
-  const last10 = series.slice(-10);
-  const driftRate = last10.length >= 10
-    ? (last10.reduce((a, b) => a + b, 0) / last10.length - r0v) / r0v
-    : 0;
+  // Drift rate as dR/dt: least-squares slope against the time axis t = i/sr,
+  // scaled by sr to convert "per sample" into "per second". Matches
+  // opensmell/mox/features.py and opensmell-rs/src/features/health.rs.
+  //
+  // This was a two-point difference across the last ten samples. That threw away
+  // every other sample, disagreed with the other two SDKs (which fit the whole
+  // window), and although its span arithmetic was right, the three
+  // implementations could not be expected to agree numerically.
+  const n = series.length;
+  let driftRate = 0;
+  if (n >= 2) {
+    const xMean = (n - 1) / 2;
+    let ssXx = 0;
+    let ssXy = 0;
+    let yMean = 0;
+    for (let i = 0; i < n; i++) yMean += series[i]!;
+    yMean /= n;
+    for (let i = 0; i < n; i++) {
+      const dx = i - xMean;
+      ssXx += dx * dx;
+      ssXy += dx * (series[i]! - yMean);
+    }
+    if (ssXx > 0) driftRate = (ssXy / ssXx) * sr;
+  }
   const noiseFloor = r0v > 0 ? std(series.slice(0, r0Samples)) / r0v : 0;
 
   let peakIdx = 0;
@@ -594,7 +621,7 @@ export function extractAllFrameworkFeatures(
     const te = computeChannelTemporal(series, sr);
     temporal.push(te);
 
-    const he = computeChannelHealth(series, r0Samples, R0effective);
+    const he = computeChannelHealth(series, r0Samples, R0effective, sr);
     health.push(he);
 
     const ha = computeChannelHardware(series);

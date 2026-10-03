@@ -6,6 +6,16 @@ import {
 
 export const MOX_CHANNEL_IDS = ["VOC", "Alcohol", "LPG", "CO", "NO2", "C2H5OH"];
 
+/**
+ * Nominal cadence used to synthesize timestamps when a CSV carries no readable
+ * time column (and the manifest-import fallback provides no rate either).
+ * This is an explicit, documented assumption — 10 Hz device firmware is the
+ * historical default, and ~1 Hz SmellNet uploads would get 10× time features.
+ * Real time columns and manifests with a declared `samplingRateHz` always take
+ * precedence; this constant only drives the synthetic fallback path.
+ */
+const SYNTHETIC_REFERENCE_HZ = DEFAULT_SYNTHETIC_RATE_HZ;
+
 export interface CsvParseResult {
   header: string[];
   timeColumn?: string;
@@ -168,10 +178,10 @@ export function parseCsv(text: string): CsvParseResult {
   let timeCol: string | undefined = timeInfo?.[0];
   const timeUnit: string = timeInfo?.[1] ?? "ms";
   let timeSource: "column" | "synthetic" = timeCol !== undefined ? "column" : "synthetic";
-  let syntheticRateHz = timeSource === "synthetic" ? DEFAULT_SYNTHETIC_RATE_HZ : 0;
+  let syntheticRateHz = timeSource === "synthetic" ? SYNTHETIC_REFERENCE_HZ : 0;
   if (timeSource === "synthetic") {
     warnings.push(
-      "No time column found (expected timestamp_ms or elapsed_ms); synthesized 10 Hz timing from row index. Add a timestamp column for accurate time-based features.",
+      `No time column found (expected timestamp_ms or elapsed_ms); synthesized ${SYNTHETIC_REFERENCE_HZ} Hz timing from row index (named constant SYNTHETIC_REFERENCE_HZ in csv.ts). Add a timestamp column for accurate time-based features.`,
     );
   }
 
@@ -218,9 +228,9 @@ export function parseCsv(text: string): CsvParseResult {
     }
     if (parsed === 0) {
       timeSource = "synthetic";
-      syntheticRateHz = DEFAULT_SYNTHETIC_RATE_HZ;
+      syntheticRateHz = SYNTHETIC_REFERENCE_HZ;
       warnings.push(
-        `Column "${timeCol}" was not readable as time (expected ms, epoch seconds, ISO datetime or HH:MM:SS); synthesized 10 Hz timing instead.`,
+        `Column "${timeCol}" was not readable as time (expected ms, epoch seconds, ISO datetime or HH:MM:SS); synthesized ${SYNTHETIC_REFERENCE_HZ} Hz timing instead (SYNTHETIC_REFERENCE_HZ).`,
       );
       timeCol = undefined;
     }
@@ -243,7 +253,7 @@ export function parseCsv(text: string): CsvParseResult {
       }
       rawTime = t;
     } else {
-      rawTime = samples.length * 100;
+      rawTime = samples.length * (1000 / SYNTHETIC_REFERENCE_HZ);
     }
 
     const values: Record<string, number> = {};
@@ -291,8 +301,8 @@ export function parseCsv(text: string): CsvParseResult {
   for (let i = 0; i < samples.length - 1; i++) gaps.push(samples[i + 1]!.time - samples[i]!.time);
   const positive = gaps.filter((g) => g > 0);
   const medianGap = positive.length ? medianOf(positive) : undefined;
-  let guessSamplingRateHz = medianGap ? 1000 / medianGap : DEFAULT_SYNTHETIC_RATE_HZ;
-  if (timeSource === "synthetic") guessSamplingRateHz = DEFAULT_SYNTHETIC_RATE_HZ;
+  let guessSamplingRateHz = medianGap ? 1000 / medianGap : SYNTHETIC_REFERENCE_HZ;
+  if (timeSource === "synthetic") guessSamplingRateHz = SYNTHETIC_REFERENCE_HZ;
 
   return {
     header,

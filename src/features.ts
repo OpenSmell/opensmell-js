@@ -1,4 +1,4 @@
-import { DEFAULT_R0_SAMPLES, OsmellFile } from "./types.js";
+import { DEFAULT_R0_SAMPLES, OsmellFile, r0WindowSamples } from "./types.js";
 import { std, isFiniteNumber } from "./normalize.js";
 import { baselineForChannel, channelStats, normalizedSeries } from "./normalize-mox.js";
 import {
@@ -79,7 +79,8 @@ function decayTimeMsAfter(norm: number[], time: number[], peakIdx: number): numb
   return undefined;
 }
 
-function saturationIndexFor(norm: number[], r0Samples: number): number {
+function saturationIndexFor(norm: number[], r0Samples?: number): number {
+  r0Samples = r0WindowSamples(norm.length, r0Samples);
   if (norm.length < r0Samples + 5) return 0;
   const r0Norm = norm.slice(0, r0Samples);
   let currentResponse = 0;
@@ -102,7 +103,7 @@ export interface MoxProcessorResult {
 export function processMox(file: OsmellFile): MoxProcessorResult {
   const channels = file.manifest.sensor.channels;
   const baseline = file.manifest.baseline;
-  const r0Samples = baseline?.r0Samples ?? DEFAULT_R0_SAMPLES;
+  const declaredR0Samples = baseline?.r0Samples ?? DEFAULT_R0_SAMPLES;
   const features: MoxFeatures[] = [];
   const normalized: Record<string, number[]> = {};
 
@@ -148,7 +149,7 @@ export function processMox(file: OsmellFile): MoxProcessorResult {
       const peakIdx = argmaxAbs(norm);
       decayTimeMs = decayTimeMsAfter(norm, file.time, peakIdx);
       endpointDelta = norm[norm.length - 1]!;
-      saturationIndex = saturationIndexFor(norm, r0Samples);
+      saturationIndex = saturationIndexFor(norm, declaredR0Samples);
     }
 
     normalized[cid] = norm;

@@ -1,7 +1,13 @@
 import { mean, std } from "./normalize.js";
-import { ChannelStats, DEFAULT_R0_SAMPLES, OsmellFile } from "./types.js";
+import { ChannelStats, DEFAULT_R0_SAMPLES, OsmellFile, r0WindowSamples } from "./types.js";
 
-export function r0FromSamples(values: number[], n = DEFAULT_R0_SAMPLES): number {
+/**
+ * Median of the leading `n` samples, with the contract guards: mean of the
+ * positive values, then 1.0. `n` is a declared baseline window, or `undefined`
+ * for the cadence-independent contract default `r0WindowSamples`.
+ */
+export function r0FromSamples(values: number[], n?: number): number {
+  n = r0WindowSamples(values.length, n);
   const window = values.slice(0, n);
   if (window.length === 0) return NaN;
   const sortedWin = [...window].sort((a, b) => a - b);
@@ -22,7 +28,7 @@ export function baselineForChannel(
 ): [number, number[], number] {
   const baseline = file.manifest.baseline;
   const source = baseline?.source ?? "none";
-  const r0Samples = baseline?.r0Samples ?? DEFAULT_R0_SAMPLES;
+  const r0Samples = r0WindowSamples(targetValues.length, baseline?.r0Samples ?? DEFAULT_R0_SAMPLES);
 
   if (source === "explicit") {
     const b = file.data[channelId] ?? [];

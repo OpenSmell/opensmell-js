@@ -1,5 +1,5 @@
 import { std, isFiniteNumber } from "./normalize.js";
-import { DEFAULT_R0_SAMPLES } from "./types.js";
+import { DEFAULT_R0_SAMPLES, r0WindowSamples } from "./types.js";
 
 export const N_CHANNELS = 6;
 
@@ -22,11 +22,22 @@ function medianOf(values: number[]): number {
   return sorted.length % 2 === 0 ? (sorted[mid - 1]! + sorted[mid]!) / 2 : sorted[mid]!;
 }
 
-export function r0FromContract(series: number[], r0Samples: number, r0?: number): number {
+/**
+ * R0 from the binding contract: explicit R0, else median of the first
+ * `r0Samples` finite samples; guard falls back to mean of positive samples,
+ * then 1.
+ *
+ * `r0Samples` is the declared baseline window and is used verbatim. `undefined`
+ * (the default) means nothing was declared, so the window is
+ * `r0WindowSamples(finite.length, undefined)` -- a floored, capped 15% of the
+ * recording, which spans the same *seconds* at any cadence. See "The R0 window
+ * contract" in `electronic-nose/SAMPLING_CONTRACT.md`.
+ */
+export function r0FromContract(series: number[], r0Samples?: number, r0?: number): number {
   const finite = series.filter(Number.isFinite);
   let r0v = r0;
   if (r0v === undefined) {
-    const window = r0Samples ? finite.slice(0, r0Samples) : finite;
+    const window = finite.slice(0, r0WindowSamples(finite.length, r0Samples));
     r0v = window.length ? medianOf(window) : 0;
   }
   if (!Number.isFinite(r0v) || r0v <= 0) {
@@ -58,10 +69,11 @@ function triExpDecay(
 
 export function computeChannelDeviceAgnostic(
   series: number[],
-  r0Samples = 15,
+  r0Samples?: number,
   sr = 10,
   r0?: number,
 ): Record<string, number | number[] | boolean> {
+  r0Samples = r0WindowSamples(series.length, r0Samples);
   if (series.length < r0Samples + 2) {
     return {
       relative_amplitude: -1,
@@ -191,7 +203,7 @@ export function computeChannelAbsolute(
   bConst = -0.5,
 ): Record<string, number> {
   let r0v = r0;
-  if (r0v === undefined || !(Number.isFinite(r0v) && r0v > 0)) r0v = r0FromContract(series, 15, r0);
+  if (r0v === undefined || !(Number.isFinite(r0v) && r0v > 0)) r0v = r0FromContract(series, DEFAULT_R0_SAMPLES, r0);
   const tail = series.length >= 10 ? series.slice(-10) : series;
   const rawResistance = tail.length ? tail.reduce((a, b) => a + b, 0) / tail.length : 0;
   const baselineResistance = r0v;
@@ -303,7 +315,11 @@ export function computeChannelTemporal(series: number[], sr = 10): Record<string
   };
 }
 
-export function computeChannelHealth(series: number[], r0Samples = 15, r0?: number, sr = 10): Record<string, number> {
+export function computeChannelHealth(series: number[], r0Samples?: number, r0?: number, sr = 10): Record<string, number> {
+  // Resolve the window once, from the row count, so R0 and noise_floor below are
+  // measured over the same span. Left unresolved, one block could take the first
+  // 15 *finite* samples for R0 and the first 15 *rows* for noise_floor.
+  r0Samples = r0WindowSamples(series.length, r0Samples);
   if (series.length < r0Samples + 5) {
     return { drift_rate: 0, sensitivity_decay: 0, noise_floor: 0, hysteresis: 0 };
   }
@@ -555,7 +571,8 @@ export function computeMultiExpDecay(
   return results;
 }
 
-export function computeSaturationIndex(series: number[], r0Samples = 15, r0?: number): number {
+export function computeSaturationIndex(series: number[], r0Samples?: number, r0?: number): number {
+  r0Samples = r0WindowSamples(series.length, r0Samples);
   if (series.length < r0Samples + 5) return 0;
   const R0 = r0FromContract(series, r0Samples, r0);
 
@@ -593,14 +610,23 @@ export function computeChannelHardware(series: number[]): Record<string, number>
 
 export type FrameworkFeatures = Record<string, number | number[] | boolean>;
 
+/**
+ * The full 28-per-channel framework vector.
+ *
+ * `r0Samples` is a declared baseline window shared by every per-channel block, or
+ * `undefined` (the default) for the cadence-independent contract default
+ * `r0WindowSamples`. A declared window wins verbatim -- see "The R0 window
+ * contract" in `electronic-nose/SAMPLING_CONTRACT.md`.
+ */
 export function extractAllFrameworkFeatures(
   data: number[][],
-  r0Samples = 15,
+  r0Samples?: number,
   sr = 10,
   r0PerChannel?: Record<number, number>,
   calibration?: Record<number, { a: number; b: number }>,
 ): FrameworkFeatures {
   const nCh = data[0]?.length ?? 0;
+  r0Samples = r0WindowSamples(data.length, r0Samples);
   const features: FrameworkFeatures = {};
 
   const deviceAgnostic: Array<Record<string, number | number[] | boolean>> = [];

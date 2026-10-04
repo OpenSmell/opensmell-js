@@ -349,7 +349,17 @@ export function computeChannelHealth(series: number[], r0Samples = 15, r0?: numb
     hysteresis = Math.abs(adsPath - desPath) / Math.max(adsPath, 1e-10);
   }
 
-  return { drift_rate: driftRate, sensitivity_decay: 0, noise_floor: noiseFloor, hysteresis };
+  let sensitivityDecay = 0;
+  const third = Math.floor(n / 3);
+  if (third > 0 && r0v > 0) {
+    let firstSum = 0;
+    let lastSum = 0;
+    for (let i = 0; i < third; i++) firstSum += series[i]!;
+    for (let i = n - third; i < n; i++) lastSum += series[i]!;
+    sensitivityDecay = (lastSum / third - firstSum / third) / r0v;
+  }
+
+  return { drift_rate: driftRate, sensitivity_decay: sensitivityDecay, noise_floor: noiseFloor, hysteresis };
 }
 
 // --- Levenberg-Marquardt (scipy.optimize.curve_fit / MINPACK analog) ---

@@ -1,0 +1,5 @@
+cycle_id,phase,timestamp_ms,sensor_type,sensor_model,analog_value_v,digital_value,frequency_hz,current_ua,ppm,index,ph,temperature_c,humidity_pct,qc_flag_injected,expected_state
+1,intake,0,pH_ISFET,TEST-pH_ISFET,0.413,,,,,,,22.73,45.89,,ready
+1,hold,10000,pH_ISFET,TEST-pH_ISFET,0.415,,,,,,,22.49,44.14,,ready
+1,purge,20000,pH_ISFET,TEST-pH_ISFET,0.414,,,,,,,22.66,44.26,,ready
+1,report,30000,pH_ISFET,TEST-pH_ISFET,0.415,,,,,,,22.53,44.53,,ready

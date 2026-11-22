@@ -1,0 +1,5 @@
+cycle_id,phase,timestamp_ms,sensor_type,sensor_model,analog_value_v,digital_value,frequency_hz,current_ua,ppm,index,ph,temperature_c,humidity_pct,qc_flag_injected,expected_state
+1,intake,0,Env_TRH,TEST-Env_TRH,22.52,45.46,,,,,,22.45,44.42,,ready
+1,hold,10000,Env_TRH,TEST-Env_TRH,22.8,45.3,,,,,,22.32,44.62,,ready
+1,purge,20000,Env_TRH,TEST-Env_TRH,22.27,44.45,,,,,,22.46,45.04,,ready
+1,report,30000,Env_TRH,TEST-Env_TRH,22.34,44.44,,,,,,22.4,45.18,,ready

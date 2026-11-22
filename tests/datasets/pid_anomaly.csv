@@ -1,0 +1,5 @@
+cycle_id,phase,timestamp_ms,sensor_type,sensor_model,analog_value_v,digital_value,frequency_hz,current_ua,ppm,index,ph,temperature_c,humidity_pct,qc_flag_injected,expected_state
+1,intake,0,PID,TEST-PID,0.149,,,,,,,22.77,44.67,,ready
+1,hold,10000,PID,TEST-PID,0.15,,,,,,,22.26,45.69,,ready
+1,purge,20000,PID,TEST-PID,0.15,,,,,,,22.68,45.46,,ready
+1,report,30000,PID,TEST-PID,0.15,,,,,,,22.78,44.76,,ready

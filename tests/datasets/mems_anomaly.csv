@@ -1,0 +1,5 @@
+cycle_id,phase,timestamp_ms,sensor_type,sensor_model,analog_value_v,digital_value,frequency_hz,current_ua,ppm,index,ph,temperature_c,humidity_pct,qc_flag_injected,expected_state
+1,intake,0,MEMS,TEST-MEMS,,,,,,347.3,,22.24,45.26,,ready
+1,hold,10000,MEMS,TEST-MEMS,,,,,,345.7,,22.74,45.72,,ready
+1,purge,20000,MEMS,TEST-MEMS,,,,,,347.1,,22.34,45.34,,ready
+1,report,30000,MEMS,TEST-MEMS,,,,,,350.7,,22.28,45.87,,ready

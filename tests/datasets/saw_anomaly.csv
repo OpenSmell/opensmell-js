@@ -1,0 +1,5 @@
+cycle_id,phase,timestamp_ms,sensor_type,sensor_model,analog_value_v,digital_value,frequency_hz,current_ua,ppm,index,ph,temperature_c,humidity_pct,qc_flag_injected,expected_state
+1,intake,0,SAW,TEST-SAW,,,433000099.5075213,,,,,22.44,44.44,,ready
+1,hold,10000,SAW,TEST-SAW,,,432999909.4232751,,,,,22.51,44.18,,ready
+1,purge,20000,SAW,TEST-SAW,,,433000058.4158729,,,,,22.27,45.25,,ready
+1,report,30000,SAW,TEST-SAW,,,432999976.3238573,,,,,22.45,44.13,,ready

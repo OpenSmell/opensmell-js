@@ -1,0 +1,5 @@
+cycle_id,phase,timestamp_ms,sensor_type,sensor_model,analog_value_v,digital_value,frequency_hz,current_ua,ppm,index,ph,temperature_c,humidity_pct,qc_flag_injected,expected_state
+1,intake,0,Electrochemical,TEST-Electrochemical,,,,50.36,,,,22.7,45.24,,ready
+1,hold,10000,Electrochemical,TEST-Electrochemical,,,,49.55,,,,22.55,45.41,,ready
+1,purge,20000,Electrochemical,TEST-Electrochemical,,,,49.58,,,,22.34,44.58,,ready
+1,report,30000,Electrochemical,TEST-Electrochemical,,,,49.78,,,,22.34,44.2,,ready

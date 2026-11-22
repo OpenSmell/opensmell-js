@@ -1,0 +1,5 @@
+cycle_id,phase,timestamp_ms,sensor_type,sensor_model,analog_value_v,digital_value,frequency_hz,current_ua,ppm,index,ph,temperature_c,humidity_pct,qc_flag_injected,expected_state
+1,intake,0,Cantilever,TEST-Cantilever,,,50004.710783776136,,,,,22.8,45.06,,ready
+1,hold,10000,Cantilever,TEST-Cantilever,,,50002.2072181936,,,,,22.72,44.02,,ready
+1,purge,20000,Cantilever,TEST-Cantilever,,,49997.66825189952,,,,,22.61,45.07,,ready
+1,report,30000,Cantilever,TEST-Cantilever,,,49999.347652506694,,,,,22.58,44.22,,ready

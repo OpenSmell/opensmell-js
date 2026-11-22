@@ -20,7 +20,7 @@ export {
   writeOsmell,
   defaultFileName,
 } from "./io.js";
-export { computeQuality, computeQualityMox, WEIGHTS } from "./quality.js";
+export { computeQuality, WEIGHTS } from "./quality.js";
 export {
   processMox,
   runProcessor,

@@ -1,34 +1,68 @@
-import { DEFAULT_R0_SAMPLES, OsmellFile, r0WindowSamples } from "./types.js";
-import { std, isFiniteNumber } from "./normalize.js";
-import { baselineForChannel, channelStats, normalizedSeries } from "./normalize-mox.js";
+// Feature extraction dispatcher for OpenSmell v1.1.
+// Routes to type-specific feature extractors based on manifest sensor type.
+// Each sensor family has fundamentally different signal characteristics:
+//   - Resistive (MOX, Polymer, SolidElectrolyte): ΔR/R0, kinetic features
+//   - Concentration (NDIR, PID, Electrochemical, Galvanic): ΔC from baseline
+//   - Frequency (QCM, SAW, Cantilever): Δf = f - f0
+//   - pH (pH_ISFET): ΔpH = pH - pH0
+//   - MEMS: Δindex = index - index0
+//   - other/unknown: generic delta from baseline
 import {
-  computeChannelAbsolute,
-  computeChannelDeviceAgnostic,
-  computeChannelHardware,
-  computeChannelHealth,
-  computeChannelTemporal,
-  computeMultiExpDecay,
-  computeSaturationIndex,
-  extractAllFrameworkFeatures,
-  featureNames,
-  frameworkFeatureLen,
-  N_CHANNELS,
-} from "./framework.js";
+  DEFAULT_R0_SAMPLES,
+  OsmellFile,
+} from "./types.js";
+import { mean } from "./normalize.js";
+import {
+  baselineForChannel,
+  channelStats,
+  normalizedSeries,
+} from "./normalize-mox.js";
+import {
+  extractResistiveFeatures,
+  ResistiveFeature,
+} from "./features-resistive.js";
+import {
+  extractConcentrationFeatures,
+  ConcentrationFeature,
+} from "./features-concentration.js";
+import {
+  extractFrequencyFeatures,
+  FrequencyFeature,
+} from "./features-frequency.js";
+import { extractPhFeatures, PhFeature } from "./features-ph.js";
+import { extractMemsFeatures, MemsFeature } from "./features-mems.js";
 
-export {
-  computeChannelAbsolute,
-  computeChannelDeviceAgnostic,
-  computeChannelHardware,
-  computeChannelHealth,
-  computeChannelTemporal,
-  computeMultiExpDecay,
-  computeSaturationIndex,
-  extractAllFrameworkFeatures,
-  featureNames,
-  frameworkFeatureLen,
-  N_CHANNELS,
-};
+// Sensor types that use resistive (ΔR/R0) feature extraction
+const RESISTIVE_TYPES = new Set([
+  "mox",
+  "polymer",
+  "solidElectrolyte",
+]);
 
+// Sensor types that use concentration-based feature extraction
+const CONCENTRATION_TYPES = new Set([
+  "ndir",
+  "pas",
+  "pid",
+  "electrochemical",
+  "galvanic",
+  "catalyticBead",
+]);
+
+// Sensor types that use frequency-based feature extraction
+const FREQUENCY_TYPES = new Set([
+  "qcm",
+  "saw",
+  "cantilever",
+]);
+
+// Sensor types that use MEMS index-based feature extraction
+const MEMS_TYPES = new Set(["mems"]);
+
+// Sensor types that use pH-based feature extraction
+const PH_TYPES = new Set(["phIsfet"]);
+
+// Legacy MoxFeatures interface kept for backward compatibility
 export interface MoxFeatures {
   channel: string;
   relative_amplitude: number;
@@ -42,140 +76,98 @@ export interface MoxFeatures {
   saturation_index: number;
 }
 
-function firstCrossTime(time: number[], norm: number[], threshold: number): number | undefined {
-  for (let i = 0; i < norm.length; i++) {
-    if (norm[i]! >= threshold) return time[i];
-  }
-  return undefined;
-}
-
-function argmaxAbs(norm: number[]): number {
-  let best = 0;
-  for (let i = 1; i < norm.length; i++) {
-    if (Math.abs(norm[i]!) > Math.abs(norm[best]!)) best = i;
-  }
-  return best;
-}
-
-function decayTimeMsAfter(norm: number[], time: number[], peakIdx: number): number | undefined {
-  if (norm.length - peakIdx <= 2) return undefined;
-  const pk = norm[peakIdx]!;
-  if (!(pk === pk) || pk === 0) return undefined;
-  const t90 = 0.9 * pk;
-  const t10 = 0.1 * pk;
-  const nearPeak = pk >= 0 ? (v: number) => v >= t90 : (v: number) => v <= t90;
-  const nearBaseline = pk >= 0 ? (v: number) => v <= t10 : (v: number) => v >= t10;
-  let si = -1;
-  for (let i = peakIdx; i < norm.length; i++) {
-    if (nearPeak(norm[i]!)) {
-      si = i;
-      break;
-    }
-  }
-  if (si < 0) return undefined;
-  for (let i = si; i < norm.length; i++) {
-    if (nearBaseline(norm[i]!)) return time[i]! - time[peakIdx]!;
-  }
-  return undefined;
-}
-
-function saturationIndexFor(norm: number[], r0Samples?: number): number {
-  r0Samples = r0WindowSamples(norm.length, r0Samples);
-  if (norm.length < r0Samples + 5) return 0;
-  const r0Norm = norm.slice(0, r0Samples);
-  let currentResponse = 0;
-  for (const v of norm) {
-    const av = Math.abs(v);
-    if (av > currentResponse) currentResponse = av;
-  }
-  const noiseFloor = std(r0Norm);
-  if (noiseFloor !== noiseFloor || currentResponse < noiseFloor * 2) return 0;
-  return Math.min(1, currentResponse / (currentResponse + noiseFloor * 10));
-}
-
 export interface MoxProcessorResult {
-  sensor_type: "mox";
+  sensorType: string;
   features: MoxFeatures[];
   normalized: Record<string, number[]>;
 }
 
-/** Per-channel MOX kinetic features (web processMox parity). */
+// Legacy MOX processor kept for backward compatibility.
+// New code should use extractResistiveFeatures directly.
 export function processMox(file: OsmellFile): MoxProcessorResult {
-  const channels = file.manifest.sensor.channels;
-  const baseline = file.manifest.baseline;
-  const declaredR0Samples = baseline?.r0Samples ?? DEFAULT_R0_SAMPLES;
-  const features: MoxFeatures[] = [];
-  const normalized: Record<string, number[]> = {};
-
-  for (const ch of channels) {
-    const cid = ch.id;
-    const values = file.data[cid] ?? [];
-    const r0 = baselineForChannel(file, cid, values)[0];
-    const stats = channelStats(values, r0);
-    const norm = normalizedSeries(values, r0);
-
-    const finiteNorm = norm.filter(isFiniteNumber);
-    let relativeAmplitude = 0;
-    let direction = 1;
-    let auc = 0;
-    let riseTimeMs: number | undefined;
-    let decayTimeMs: number | undefined;
-    let endpointDelta = 0;
-    let saturationIndex = 0;
-
-    if (!stats.dead && finiteNorm.length > 0) {
-      let maxVal = finiteNorm[0]!;
-      let minVal = finiteNorm[0]!;
-      for (const v of finiteNorm) {
-        if (v > maxVal) maxVal = v;
-        if (v < minVal) minVal = v;
-      }
-      const peak = Math.abs(maxVal) >= Math.abs(minVal) ? maxVal : minVal;
-      direction = peak >= 0 ? 1 : -1;
-      relativeAmplitude = Math.abs(peak);
-
-      const span = maxVal - minVal;
-      const t10 = firstCrossTime(file.time, norm, minVal + 0.1 * span);
-      const t90 = firstCrossTime(file.time, norm, minVal + 0.9 * span);
-      if (t10 !== undefined && t90 !== undefined) riseTimeMs = t90 - t10;
-
-      let prev = norm[0]!;
-      for (let i = 1; i < norm.length; i++) {
-        const dt = file.time[i]! - file.time[i - 1]!;
-        if (dt > 0) auc += (norm[i]! + prev) * dt * 0.5;
-        prev = norm[i]!;
-      }
-
-      const peakIdx = argmaxAbs(norm);
-      decayTimeMs = decayTimeMsAfter(norm, file.time, peakIdx);
-      endpointDelta = norm[norm.length - 1]!;
-      saturationIndex = saturationIndexFor(norm, declaredR0Samples);
-    }
-
-    normalized[cid] = norm;
-    features.push({
-      channel: cid,
-      relative_amplitude: relativeAmplitude,
-      direction,
-      rise_time_ms: riseTimeMs,
-      decay_time_ms: decayTimeMs,
-      auc,
-      r0,
-      dead: stats.dead,
-      endpoint_delta: endpointDelta,
-      saturation_index: saturationIndex,
-    });
-  }
-
-  return { sensor_type: "mox", features, normalized };
+  const result = extractResistiveFeatures(file);
+  return {
+    sensorType: "mox",
+    features: result.features.map((f) => ({
+      channel: f.channel,
+      relative_amplitude: f.relativeAmplitude,
+      direction: f.direction,
+      rise_time_ms: f.riseTimeMs,
+      decay_time_ms: f.decayTimeMs,
+      auc: f.auc,
+      r0: f.r0,
+      dead: f.dead,
+      endpoint_delta: f.endpointDelta,
+      saturation_index: f.saturationIndex,
+    })),
+    normalized: result.normalized,
+  };
 }
 
-/** Dispatch feature extraction by sensor type (web runProcessor parity). */
-export function runProcessor(file: OsmellFile): MoxProcessorResult | Record<string, unknown> {
+/** Dispatch feature extraction by sensor type. */
+export function runProcessor(
+  file: OsmellFile,
+  cal?: {
+    baselineConcentrations: Record<string, number>;
+    maxConcentrations: Record<string, number>;
+    baselineFrequencies: Record<string, number>;
+    baselinePh: Record<string, number>;
+    baselineIndex: Record<string, number>;
+    maxIndex: number;
+  },
+):
+  | MoxProcessorResult
+  | ResistiveFeature[]
+  | ConcentrationFeature[]
+  | FrequencyFeature[]
+  | PhFeature[]
+  | MemsFeature[]
+  | { sensorType: string; features: any[]; normalized: Record<string, number[]> } {
   const sensorType = file.manifest.sensor.sensorType;
-  if (sensorType === "mox") return processMox(file);
-  if (sensorType === "miris" || sensorType === "electrochemical") {
-    return { sensor_type: sensorType, normalized: file.data };
+
+  if (RESISTIVE_TYPES.has(sensorType)) {
+    return extractResistiveFeatures(file);
   }
-  return { sensor_type: "other" };
+
+  if (CONCENTRATION_TYPES.has(sensorType)) {
+    return extractConcentrationFeatures(
+      file,
+      cal?.baselineConcentrations ?? {},
+      cal?.maxConcentrations ?? {},
+    );
+  }
+
+  if (FREQUENCY_TYPES.has(sensorType)) {
+    return extractFrequencyFeatures(file, cal?.baselineFrequencies ?? {});
+  }
+
+  if (PH_TYPES.has(sensorType)) {
+    return extractPhFeatures(file, cal?.baselinePh ?? {});
+  }
+
+  if (MEMS_TYPES.has(sensorType)) {
+    return extractMemsFeatures(file, cal?.baselineIndex ?? {});
+  }
+
+  // other / unknown / envTrh / miris: generic
+  return {
+    sensorType: sensorType,
+    features: [],
+    normalized: {},
+  };
 }
+
+// Framework feature exports from framework.js
+export {
+  computeChannelAbsolute,
+  computeChannelDeviceAgnostic,
+  computeChannelHardware,
+  computeChannelHealth,
+  computeChannelTemporal,
+  computeMultiExpDecay,
+  computeSaturationIndex,
+  extractAllFrameworkFeatures,
+  featureNames,
+  frameworkFeatureLen,
+  N_CHANNELS,
+} from "./framework.js";

@@ -20,7 +20,27 @@ export const CONTEXT_COLUMN_HINTS = [
   "resistance",
   "altitude",
 ];
-export const SENSOR_TYPES = ["mox", "miris", "electrochemical", "other", "unknown"];
+export const SENSOR_TYPES = [
+  "mox",
+  "electrochemical",
+  "ndir",
+  "pas",
+  "pid",
+  "galvanic",
+  "catalyticBead",
+  "qcm",
+  "saw",
+  "cantilever",
+  "polymer",
+  "solidElectrolyte",
+  "phIsfet",
+  "envTrh",
+  "mems",
+  "miris",
+  "other",
+  "unknown",
+] as const;
+export type SensorType = (typeof SENSOR_TYPES)[number];
 export const SESSION_ROLES = ["baseline", "exposure", "single"];
 export const BASELINE_SOURCES = ["explicit", "auto", "none"];
 

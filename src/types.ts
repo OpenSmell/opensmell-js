@@ -109,14 +109,26 @@ export interface ChannelDescriptor {
   id: string;
   unit: string;
   target?: string;
+  sensorType?: SensorType;
+  interface?: "analog_5v" | "i2c_3v3" | "frequency" | "onewire_id";
 }
 
 export function channelToDict(c: ChannelDescriptor): Record<string, JsonValue> {
-  return { id: c.id, unit: c.unit, ...(c.target ? { target: c.target } : {}) };
+  const out: Record<string, JsonValue> = { id: c.id, unit: c.unit };
+  if (c.target !== undefined) out["target"] = c.target;
+  if (c.sensorType !== undefined) out["sensorType"] = c.sensorType;
+  if (c.interface !== undefined) out["interface"] = c.interface;
+  return out;
 }
 
 export function channelFromDict(d: Record<string, JsonValue>): ChannelDescriptor {
-  return { id: d["id"] as string, unit: (d["unit"] as string) ?? "", target: d["target"] as string | undefined };
+  return {
+    id: d["id"] as string,
+    unit: (d["unit"] as string) ?? "",
+    target: d["target"] as string | undefined,
+    sensorType: (d["sensorType"] as SensorType) ?? undefined,
+    interface: (d["interface"] as ChannelDescriptor["interface"]) ?? undefined,
+  };
 }
 
 export interface DeviceDescriptor {

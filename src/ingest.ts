@@ -95,7 +95,6 @@ export function buildOsmellFile(
       syntheticRateHz: parsed.syntheticRateHz || null,
       timeColumn: parsed.timeColumn ?? null,
       contextColumns: parsed.contextColumns,
-      unknownColumns: parsed.unknownColumns,
       skippedColumns: parsed.skippedColumns,
       warnings: parsed.warnings,
       context: Object.fromEntries(
@@ -108,7 +107,12 @@ export function buildOsmellFile(
     osmell: { formatVersion: "1.0.0" },
     sensor: {
       sensorType,
-      channels: parsed.channelIds.map((cid) => ({ id: cid, unit: "adc" }) as ChannelDescriptor),
+      channels: parsed.channelIds.map((cid) => ({
+        id: cid,
+        unit: parsed.channelUnits[cid] ?? "adc",
+        sensorType: parsed.channelTypes[cid] ?? "unknown",
+        interface: parsed.channelInterfaces[cid] ?? "analog_5v",
+      })) as ChannelDescriptor[],
       samplingRateHz: parsed.guessSamplingRateHz || undefined,
       timeColumn: parsed.timeColumn ?? "synthetic_index",
     } as SensorDescriptor,

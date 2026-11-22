@@ -2,8 +2,90 @@ import {
   CONTEXT_COLUMN_HINTS,
   DEFAULT_SYNTHETIC_RATE_HZ,
   ParsedSample,
+  SensorType,
 } from "./types.js";
 
+export interface SensorTypeSignature {
+  type: SensorType;
+  patterns: RegExp[];
+  unit: string;
+  interface: "analog_5v" | "i2c_3v3" | "frequency" | "onewire_id";
+  description: string;
+}
+
+export const SENSOR_TYPE_SIGNATURES: SensorTypeSignature[] = [
+  // Environmental context (checked first — temp/RH/pressure are context, not analytes)
+  { type: "envTrh", patterns: [/RH/i, /humid/i, /temp/i, /DHT/i, /SHT/i, /BMP/i, /pressure/i, /dew/i, /^T_\d+/i, /^T\d+[^A-Za-z]/i, /^H\d+[^A-Za-z]/i], unit: "C / %RH", interface: "i2c_3v3", description: "Temperature / humidity / pressure context" },
+  // NDIR — digital CO2 / IR gases
+  { type: "ndir", patterns: [/CO2|CO₂|NDIR|infrared/i], unit: "ppm", interface: "i2c_3v3", description: "Non-dispersive infrared" },
+  // PAS — photoacoustic
+  { type: "pas", patterns: [/PAS|photoacoustic/i], unit: "ppb", interface: "i2c_3v3", description: "Photoacoustic spectroscopy" },
+  // PID — photoionization
+  { type: "pid", patterns: [/PID|photoionization/i], unit: "ppb", interface: "analog_5v", description: "Photoionization detector" },
+  // Electrochemical — specific toxics
+  { type: "electrochemical", patterns: [/EC[-_]/i, /electrochemical/i, /^(H2S|SO2|NO2|O3|Cl2|NH3|HCHO|C2H4|Ethylene|Formaldehyde)$/i], unit: "ppm", interface: "analog_5v", description: "Electrochemical cell" },
+  // Galvanic — oxygen
+  { type: "galvanic", patterns: [/galvanic/i, /^(O2|O₂|Oxygen)$/i], unit: "% O2", interface: "analog_5v", description: "Galvanic fuel cell (O2)" },
+  // Catalytic bead — combustibles
+  { type: "catalyticBead", patterns: [/LEL|combustible|catalytic|pellistor/i], unit: "% LEL", interface: "analog_5v", description: "Catalytic bead / pellistor" },
+  // QCM — frequency
+  { type: "qcm", patterns: [/QCM|quartz\.crystal/i], unit: "Hz", interface: "frequency", description: "Quartz crystal microbalance" },
+  // SAW — frequency
+  { type: "saw", patterns: [/SAW|surface\.acoustic/i], unit: "Hz", interface: "frequency", description: "Surface acoustic wave" },
+  // Cantilever — frequency
+  { type: "cantilever", patterns: [/cantilever/i], unit: "Hz", interface: "frequency", description: "Microcantilever" },
+  // Polymer — resistance
+  { type: "polymer", patterns: [/polymer|chemiresist/i], unit: "ohm", interface: "analog_5v", description: "Conducting polymer" },
+  // Solid electrolyte — high-temp O2/CO2
+  { type: "solidElectrolyte", patterns: [/zirconia|solid.electrolyte/i], unit: "% O2", interface: "analog_5v", description: "Solid electrolyte (zirconia)" },
+  // pH ISFET — liquid pH
+  { type: "phIsfet", patterns: [/pH|ISFET/i], unit: "pH", interface: "analog_5v", description: "pH ISFET (liquid)" },
+  // MEMS — digital index
+  { type: "mems", patterns: [/BME|SGP|CCS|MEMS|VOC\.index|IAQ/i], unit: "idx", interface: "i2c_3v3", description: "MEMS digital sensor" },
+  // Miris
+  { type: "miris", patterns: [/miris/i], unit: "raw", interface: "analog_5v", description: "Miris sensor" },
+  // MOX — resistance-based, heated (broad catch-all, checked last)
+  { type: "mox", patterns: [/^(MQ|TGS|MICS|ZnO|SnO2|WO3|In2O3)/i, /^(R\d+)$/, /^(26\d\d|TGS\d+)/i, /^(VOC|Alcohol|LPG|Methane|Ammonia|Hydrogen|Butane|Propane|CH4)$/i, /CO$/i], unit: "ohm", interface: "analog_5v", description: "Metal-oxide semiconductor (resistance)" },
+  // other / unknown fallbacks
+  { type: "other", patterns: [], unit: "raw", interface: "analog_5v", description: "Other / unspecified sensor" },
+  { type: "unknown", patterns: [], unit: "raw", interface: "analog_5v", description: "Unknown sensor type" },
+];
+
+/** Classify a single column name into a sensor type, unit, and interface. */
+export function classifyChannel(columnName: string): { type: SensorType; unit: string; interface: "analog_5v" | "i2c_3v3" | "frequency" | "onewire_id"; confidence: number } {
+  const n = columnName.trim();
+  let best: { type: SensorType; unit: string; interface: "analog_5v" | "i2c_3v3" | "frequency" | "onewire_id"; confidence: number } | undefined;
+
+  for (const sig of SENSOR_TYPE_SIGNATURES) {
+    for (const pat of sig.patterns) {
+      if (pat.test(n)) {
+        // More specific patterns (more characters in the regex source) score higher.
+        const confidence = pat.source.length;
+        if (!best || confidence > best.confidence) {
+          best = { type: sig.type, unit: sig.unit, interface: sig.interface, confidence };
+        }
+      }
+    }
+  }
+
+  if (!best) return { type: "unknown", unit: "raw", interface: "analog_5v", confidence: 0 };
+  return best;
+}
+
+/** Guess the overall file sensor type from channel classifications (dominant type). */
+export function guessSensorType(header: string[]): string {
+  const sensorCols = header.filter((h) => !isContextColumn(h));
+  if (sensorCols.length === 0) return "unknown";
+  const counts: Record<string, number> = {};
+  for (const c of sensorCols) {
+    const t = classifyChannel(c).type;
+    counts[t] = (counts[t] ?? 0) + 1;
+  }
+  const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+  return (sorted[0]?.[0] as SensorType) ?? "unknown";
+}
+
+/** MOX channel IDs retained for backward compatibility. */
 export const MOX_CHANNEL_IDS = ["VOC", "Alcohol", "LPG", "CO", "NO2", "C2H5OH"];
 
 /**
@@ -25,16 +107,24 @@ export interface CsvParseResult {
   rowCount: number;
   channelIds: string[];
   contextColumns: string[];
-  unknownColumns: string[];
   skippedColumns: string[];
   guessSamplingRateHz: number;
   nonFinite: number;
   unsorted: boolean;
   query?: string;
   warnings: string[];
+  /** Per-channel classified sensor type. */
+  channelTypes: Record<string, SensorType>;
+  /** Per-channel engineering unit. */
+  channelUnits: Record<string, string>;
+  /** Per-channel electrical interface. */
+  channelInterfaces: Record<string, "analog_5v" | "i2c_3v3" | "frequency" | "onewire_id">;
 }
 
-function parseRow(raw: string, delim = ","): string[] {
+function parseRow(raw: string, delim: string | RegExp = ","): string[] {
+  if (delim instanceof RegExp) {
+    return raw.split(delim).map((s) => s.trim()).filter((s) => s.length > 0);
+  }
   const cells: string[] = [];
   let current = "";
   let inQuotes = false;
@@ -78,7 +168,7 @@ export function detectTimeColumn(header: string[]): string | undefined {
   return info?.[0];
 }
 
-function detectDelimiter(sampleLine: string): string {
+function detectDelimiter(sampleLine: string): string | RegExp {
   let best = ",";
   let bestCount = 0;
   for (const c of [",", ";", "\t", "|"]) {
@@ -87,6 +177,10 @@ function detectDelimiter(sampleLine: string): string {
       bestCount = count;
       best = c;
     }
+  }
+  // No standard delimiter found but line has whitespace → whitespace-delimited
+  if (bestCount === 0 && /\s/.test(sampleLine)) {
+    return /\s+/;
   }
   return best;
 }
@@ -149,10 +243,6 @@ export function isContextColumn(name: string): boolean {
   return CONTEXT_COLUMN_HINTS.some((hint) => n.includes(hint));
 }
 
-export function guessSensorType(header: string[]): string {
-  const hits = header.filter((h) => MOX_CHANNEL_IDS.includes(h));
-  return hits.length >= 2 ? "mox" : "unknown";
-}
 
 export function parseCsv(text: string): CsvParseResult {
   const warnings: string[] = [];
@@ -171,7 +261,7 @@ export function parseCsv(text: string): CsvParseResult {
     );
   }
 
-  const header = parseRow(rows[0]!, delim).map((h) => h.trim());
+  const header = parseRow(rows[0]!, delim).map((h) => h.trim().replace(/\[.*?\]/g, "").trim());
   if (header.length === 0) throw new Error("The CSV has no columns.");
 
   const timeInfo = detectTimeColumnInfo(header);
@@ -209,10 +299,20 @@ export function parseCsv(text: string): CsvParseResult {
   if (skippedColumns.length > 0) {
     warnings.push(`Non-numeric column(s) skipped: ${skippedColumns.join(", ")}.`);
   }
-  const unknownColumns = channelIds.filter((c) => !MOX_CHANNEL_IDS.includes(c));
-  if (unknownColumns.length > 0) {
+  const channelTypes: Record<string, SensorType> = {};
+  const channelUnits: Record<string, string> = {};
+  const channelInterfaces: Record<string, "analog_5v" | "i2c_3v3" | "frequency" | "onewire_id"> = {};
+  const typeWarnings: string[] = [];
+  for (const ch of channelIds) {
+    const cls = classifyChannel(ch);
+    channelTypes[ch] = cls.type;
+    channelUnits[ch] = cls.unit;
+    channelInterfaces[ch] = cls.interface;
+    if (cls.type === "unknown") typeWarnings.push(ch);
+  }
+  if (typeWarnings.length > 0) {
     warnings.push(
-      `Column(s) not in the MOX set treated as sensor channels: ${unknownColumns.join(", ")}.`,
+      `Unclassified channel(s) treated as generic: ${typeWarnings.join(", ")}.`,
     );
   }
 
@@ -313,12 +413,14 @@ export function parseCsv(text: string): CsvParseResult {
     rowCount: samples.length,
     channelIds,
     contextColumns,
-    unknownColumns,
     skippedColumns,
     guessSamplingRateHz,
     nonFinite,
     unsorted,
     warnings,
+    channelTypes,
+    channelUnits,
+    channelInterfaces,
   };
 }
 
